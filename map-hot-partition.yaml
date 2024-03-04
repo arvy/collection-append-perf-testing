@@ -1,0 +1,68 @@
+min_version: "5.17.1"
+
+description: |
+  A workload with only text keys and text values.
+  The CQL Key-Value workload demonstrates the simplest possible schema with payload data. This is useful for measuring
+  system capacity most directly in terms of raw operations. As a reference point, it provides some insight around types of
+  workloads that are constrained around messaging, threading, and tasking, rather than bulk throughput.
+  During preload, all keys are set with a value. During the main phase of the workload, random keys from the known
+  population are replaced with new values which never repeat. During the main phase, random partitions are selected for
+  upsert, with row values never repeating.
+
+scenarios:
+  default:
+    schema: run driver=cql tags==block:schema threads==1 cycles==UNDEF
+    main: run driver=cql tags==block:"main.*" cycles===TEMPLATE(main-cycles,10000000) threads=auto
+  astra:
+    schema: run driver=cql tags==block:schema-astra threads==1 cycles==UNDEF
+    main: run driver=cql tags==block:"main.*" cycles===TEMPLATE(main-cycles,10000000) threads=auto
+  basic_check:
+    schema: run driver=cql tags==block:schema threads==1 cycles==UNDEF
+    main: run driver=cql tags==block:"main.*" cycles===TEMPLATE(main-cycles,10) threads=auto
+
+bindings:
+  seq_key: Mod(TEMPLATE(keycount,1000000000)); ToString() -> String
+  seq_value: Hash(); Mod(TEMPLATE(valuecount,1000000000)); ToString() -> String
+  rw_key: TEMPLATE(keydist,Uniform(0,1000000000)); ToString() -> String
+  rw_value: Hash(); TEMPLATE(valdist,Uniform(0,1000000000)); ToString() -> String
+
+blocks:
+  schema:
+    params:
+      prepared: false
+    ops:
+      create-keyspace: |
+        create keyspace if not exists TEMPLATE(keyspace,baselines)
+        WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 'TEMPLATE(rf,1)'}
+        AND durable_writes = true;
+      create-table: |
+        create table if not exists TEMPLATE(keyspace,baselines).TEMPLATE(table,map_table) 
+        (key text PRIMARY KEY, 
+        map_col map<text,text>);
+  schema-astra:
+    params:
+      prepared: false
+    statements:
+      create-table: |
+        create table if not exists TEMPLATE(keyspace,baselines).TEMPLATE(table,map_table) 
+        (key text PRIMARY KEY, 
+        map_col map<text,text>);
+
+  verify:
+    params:
+      cl: TEMPLATE(read_cl,LOCAL_QUORUM)
+    ops:
+      verify-select: |
+        SELECT * 
+        FROM TEMPLATE(keyspace,baselines).TEMPLATE(table,map_table)
+        WHERE key = 'TEMPLATE(hot_partition_key,x)'
+      verify-fields: key->seq_key, value->seq_value
+  main-write:
+    params:
+      ratio: 5
+      cl: TEMPLATE(write_cl,LOCAL_QUORUM)
+    statements:
+      main-insert: |
+        UPDATE TEMPLATE(keyspace,baselines).TEMPLATE(table,map_table)
+        SET map_col = map_col + { {rw_key} : {rw_value} } 
+        WHERE key = 'TEMPLATE(hot_partition_key,x)';
