@@ -23,8 +23,7 @@ scenarios:
 bindings:
   seq_key: Mod(TEMPLATE(keycount,1000000000)); ToString() -> String
   seq_value: Hash(); Mod(TEMPLATE(valuecount,1000000000)); ToString() -> String
-  rw_key: TEMPLATE(keydist,Uniform(0,1000000000)); ToString() -> String
-  rw_value: Hash(); TEMPLATE(valdist,Uniform(0,1000000000)); ToString() -> String
+  map_entry: Map(FixedValue(1), AlphaNumericString(20), AlphaNumericString(20) )
 
 blocks:
   schema:
@@ -64,5 +63,5 @@ blocks:
     statements:
       main-insert: |
         UPDATE TEMPLATE(keyspace,baselines).TEMPLATE(table,map_table)
-        SET map_col = map_col + { {rw_key} : {rw_value} } 
+        SET map_col = map_col +  {map_entry}
         WHERE key = 'TEMPLATE(hot_partition_key,x)';
